@@ -9,6 +9,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Random;
 
 import org.apache.commons.pool.KeyedObjectPool;
 import org.apache.commons.pool.impl.GenericKeyedObjectPool;
@@ -36,10 +37,14 @@ import com.googlecode.jmxtrans.util.ValidationException;
 public class SplunkTCPWriter extends BaseOutputWriter {
 
 	private static final Logger log = LoggerFactory.getLogger(SplunkTCPWriter.class);
-
+	public static final String FLUSHOUTPUT = "flushOutput";
+	
 	private String host;
 	private Integer port;
-
+	private Boolean flushOutput;
+	private DateFormat fdate;
+	private Random rand;
+	
 	private KeyedObjectPool pool;
 	private ManagedObject mbean;
 	private InetSocketAddress address;
@@ -55,6 +60,8 @@ public class SplunkTCPWriter extends BaseOutputWriter {
 			this.pool = JmxUtils.getObjectPool(new SocketFactory());
 			this.mbean = new ManagedGenericKeyedObjectPool((GenericKeyedObjectPool)pool, Server.SOCKET_FACTORY_POOL);
 			JmxUtils.registerJMX(this.mbean);
+			this.fdate = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z");
+			this.rand = new Random();
 		} catch (Exception e) {
 			throw new LifecycleException(e);
 		}
@@ -78,12 +85,14 @@ public class SplunkTCPWriter extends BaseOutputWriter {
 
 	@Override
 	public void validateSetup(Query query) throws ValidationException {
-		host = (String) this.getSettings().get(HOST);
+		this.host = (String) this.getSettings().get(HOST);
 		Object portObj = this.getSettings().get(PORT);
+		this.flushOutput = this.getBooleanSetting(FLUSHOUTPUT);
+		
 		if (portObj instanceof String) {
-			port = Integer.parseInt((String) portObj);
+			this.port = Integer.parseInt((String) portObj);
 		} else if (portObj instanceof Integer) {
-			port = (Integer) portObj;
+			this.port = (Integer) portObj;
 		}
 
 		if (host == null || port == null) {
@@ -105,8 +114,7 @@ public class SplunkTCPWriter extends BaseOutputWriter {
 			if (results.size() > 0) {
 				StringBuilder sb = new StringBuilder();
 				Result r = results.get(0);
-				DateFormat fdate = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z");
-				sb.append(fdate.format(new Date(r.getEpoch())));
+				sb.append(this.fdate.format(new Date(r.getEpoch())));
 				sb.append(" ");
 				sb.append("jmxhost=");
 				sb.append(query.getServer().getHost());
@@ -128,10 +136,11 @@ public class SplunkTCPWriter extends BaseOutputWriter {
 				sb.append("\r\n");
 				String s = sb.toString();
 				if (isDebugEnabled()) {
-					log.debug("Splunk TCP writer Message: " + s.trim());
+					log.debug("Splunk TCP writer Message: " + s.trim() + " " + this.rand.nextInt(100));
 				}
 				writer.write(s);
-				writer.flush();
+				if (this.flushOutput) 
+					writer.flush();
 			}
 		}
 		catch (Exception e) {
